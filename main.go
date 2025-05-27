@@ -3,8 +3,9 @@ package main
 import (
 	"database/sql"
 	"fmt"
+	"log"
 	"os"
-	"path"
+	"path/filepath"
 
 	tea "github.com/charmbracelet/bubbletea"
 	_ "github.com/mattn/go-sqlite3"
@@ -33,23 +34,19 @@ func initFiles() string {
 	scope := gap.NewScope(gap.User, "chronos")
 
 	dirs, err := scope.DataDirs()
-
-	if err != nil {
-		fmt.Println("Failed finind suitable data dir")
+	if err != nil || len(dirs) == 0 {
+		log.Fatal("Failed finding suitable data dir")
 	}
 
-	var dir string
-
-	if len(dirs) > 1 {
-		dir = dirs[0]
-	}
+	dir := dirs[0]
 
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
-		os.Mkdir(dir, 0755)
+		if err := os.Mkdir(dir, 0755); err != nil {
+			log.Fatalf("Failed to create directory: %v", err)
+		}
 	}
 
-	path := path.Join(dir, "chronos.db")
-
+	path := filepath.Join(dir, "chronos.db")
 	fmt.Println(path)
 
 	return path
