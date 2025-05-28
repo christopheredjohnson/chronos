@@ -12,15 +12,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-type tickMsg time.Time
-
-type Project struct {
-	ID       int
-	Name     string
-	Elapsed  time.Duration
-	Tracking bool
-}
-
 type model struct {
 	db             *sql.DB
 	projects       []Project
@@ -40,7 +31,7 @@ func initialModel(db *sql.DB) model {
 	}
 
 	projects := loadProjects(db)
-	rows := buildRows(projects)
+	rows := buildRows(projects, make(map[int]time.Time))
 
 	t := table.New(table.WithColumns(columns), table.WithRows(rows), table.WithFocused(true))
 
@@ -64,7 +55,7 @@ func initialModel(db *sql.DB) model {
 
 	input := textinput.New()
 	input.Placeholder = "New project name"
-	input.CharLimit = 50
+	input.CharLimit = 255
 	input.Width = 30
 
 	return model{
@@ -76,39 +67,8 @@ func initialModel(db *sql.DB) model {
 	}
 }
 
-func (m *model) saveAll() {
-	for _, p := range m.projects {
-		if p.Tracking {
-			started := m.timerStartedAt[p.ID]
-			p.Elapsed += time.Since(started)
-			p.Tracking = false
-		}
-		m.saveProject(p)
-	}
-}
-
-func (m *model) addProject(name string) {
-	res, err := m.db.Exec("INSERT INTO projects (name, elapsed) VALUES (?, ?)", name, 0)
-	if err != nil {
-		return
-	}
-	id, _ := res.LastInsertId()
-	p := Project{ID: int(id), Name: name, Elapsed: 0}
-	m.projects = append(m.projects, p)
-}
-
-func (m *model) saveProject(p Project) {
-	_, _ = m.db.Exec("UPDATE projects SET elapsed = ? WHERE id = ?", int(p.Elapsed.Seconds()), p.ID)
-}
-
 func (m model) Init() tea.Cmd {
 	return tea.Batch(tick(), textinput.Blink, tea.EnterAltScreen)
-}
-
-func tick() tea.Cmd {
-	return tea.Tick(time.Second, func(t time.Time) tea.Msg {
-		return tickMsg(t)
-	})
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -178,13 +138,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case tickMsg:
-		for i := range m.projects {
-			p := &m.projects[i]
-			if p.Tracking {
-				started := m.timerStartedAt[p.ID]
-				p.Elapsed = time.Since(started) + p.Elapsed
-			}
-		}
 		m.updateTableRows()
 		return m, tick()
 	}
@@ -202,14 +155,40 @@ func (m model) View() string {
 	return fmt.Sprintf("%s\n\n%s\n\n[↑/↓] select • [enter] toggle • [a] add • [q] quit", title, m.table.View())
 }
 
-func (m *model) updateTableRows() {
-	m.table.SetRows(buildRows(m.projects))
+func (m *model) saveAll() {
+	for _, p := range m.projects {
+		if p.Tracking {
+			started := m.timerStartedAt[p.ID]
+			p.Elapsed += time.Since(started)
+			p.Tracking = false
+		}
+		m.saveProject(p)
+	}
 }
 
-func buildRows(projects []Project) []table.Row {
+func (m *model) updateTableRows() {
+	m.table.SetRows(buildRows(m.projects, m.timerStartedAt))
+}
+
+type Project struct {
+	ID       int
+	Name     string
+	Elapsed  time.Duration
+	Tracking bool
+}
+
+type tickMsg time.Time
+
+func buildRows(projects []Project, startedMap map[int]time.Time) []table.Row {
 	var rows []table.Row
 	for _, p := range projects {
-		elapsed := formatDuration(p.Elapsed)
+		elapsed := formatDuration(func() time.Duration {
+			if p.Tracking {
+				return time.Since(startedMap[p.ID]) + p.Elapsed
+			}
+			return p.Elapsed
+		}())
+
 		status := "⏸"
 
 		if p.Tracking {
@@ -220,31 +199,8 @@ func buildRows(projects []Project) []table.Row {
 	return rows
 }
 
-func formatDuration(d time.Duration) string {
-	total := int(d.Seconds())
-	h := total / 3600
-	m := (total % 3600) / 60
-	s := total % 60
-	return fmt.Sprintf("%02d:%02d:%02d", h, m, s)
-}
-
-func loadProjects(db *sql.DB) []Project {
-	rows, err := db.Query("SELECT id, name, elapsed FROM projects")
-	if err != nil {
-		panic(err)
-	}
-	defer rows.Close()
-
-	var projects []Project
-	for rows.Next() {
-		var p Project
-		var elapsedSeconds int64
-		if err := rows.Scan(&p.ID, &p.Name, &elapsedSeconds); err != nil {
-			continue
-		}
-		p.Elapsed = time.Duration(elapsedSeconds) * time.Second
-		p.Tracking = false
-		projects = append(projects, p)
-	}
-	return projects
+func tick() tea.Cmd {
+	return tea.Tick(time.Second, func(t time.Time) tea.Msg {
+		return tickMsg(t)
+	})
 }
