@@ -19,6 +19,15 @@ import (
 
 func main() {
 
+	if len(os.Getenv("DEBUG")) > 0 {
+		f, err := tea.LogToFile("debug.log", "debug")
+		if err != nil {
+			fmt.Println("fatal:", err)
+			os.Exit(1)
+		}
+		defer f.Close()
+	}
+
 	path := initFiles()
 
 	db, err := sql.Open("sqlite3", path)
@@ -52,7 +61,6 @@ func initFiles() string {
 	}
 
 	path := filepath.Join(dir, "chronos.db")
-	fmt.Println(path)
 
 	return path
 }
@@ -98,7 +106,7 @@ func initialModel(db *sql.DB) model {
 	}
 
 	projects := loadProjects(db)
-	rows := buildRows(projects)
+	rows := buildRows(projects, make(map[int]time.Time))
 
 	t := table.New(table.WithColumns(columns), table.WithRows(rows), table.WithFocused(true))
 
@@ -236,13 +244,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case tickMsg:
-		for i := range m.projects {
-			p := &m.projects[i]
-			if p.Tracking {
-				started := m.timerStartedAt[p.ID]
-				p.Elapsed = time.Since(started) + p.Elapsed
-			}
-		}
 		m.updateTableRows()
 		return m, tick()
 	}
@@ -261,13 +262,19 @@ func (m model) View() string {
 }
 
 func (m *model) updateTableRows() {
-	m.table.SetRows(buildRows(m.projects))
+	m.table.SetRows(buildRows(m.projects, m.timerStartedAt))
 }
 
-func buildRows(projects []Project) []table.Row {
+func buildRows(projects []Project, startedMap map[int]time.Time) []table.Row {
 	var rows []table.Row
 	for _, p := range projects {
-		elapsed := formatDuration(p.Elapsed)
+		elapsed := formatDuration(func() time.Duration {
+			if p.Tracking {
+				return time.Since(startedMap[p.ID]) + p.Elapsed
+			}
+			return p.Elapsed
+		}())
+
 		status := "⏸"
 
 		if p.Tracking {
