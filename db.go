@@ -52,3 +52,13 @@ func (m *model) addProject(name string) {
 	p := Project{ID: int(id), Name: name, Elapsed: 0}
 	m.projects = append(m.projects, p)
 }
+
+func (m *model) renameProject(id int, newName string) {
+	_, _ = m.db.Exec("UPDATE projects SET name = ? WHERE id = ?", newName, id)
+	for i := range m.projects {
+		if m.projects[i].ID == id {
+			m.projects[i].Name = newName
+			break
+		}
+	}
+}

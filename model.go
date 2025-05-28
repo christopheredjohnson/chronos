@@ -13,14 +13,16 @@ import (
 )
 
 type model struct {
-	db             *sql.DB
-	projects       []Project
-	table          table.Model
-	input          textinput.Model
-	addingProject  bool
-	timerStartedAt map[int]time.Time
-	width          int
-	height         int
+	db               *sql.DB
+	projects         []Project
+	table            table.Model
+	input            textinput.Model
+	addingProject    bool
+	timerStartedAt   map[int]time.Time
+	width            int
+	height           int
+	editingProject   bool
+	editingProjectID int
 }
 
 func initialModel(db *sql.DB) model {
@@ -110,6 +112,26 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		if m.editingProject {
+			switch key {
+			case "enter":
+				newName := strings.TrimSpace(m.input.Value())
+				if newName != "" {
+					m.renameProject(m.editingProjectID, newName)
+				}
+				m.editingProject = false
+				m.input.Reset()
+				m.updateTableRows()
+			case "esc":
+				m.editingProject = false
+				m.input.Reset()
+			default:
+				m.input, cmd = m.input.Update(msg)
+				return m, cmd
+			}
+			return m, nil
+		}
+
 		switch key {
 		case "ctrl+c", "q":
 			m.saveAll()
@@ -118,6 +140,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.addingProject = true
 			m.input.Focus()
 			return m, nil
+		case "e":
+			if !m.addingProject && !m.editingProject {
+				i := m.table.Cursor()
+				p := m.projects[i]
+				m.editingProject = true
+				m.editingProjectID = p.ID
+				m.input.SetValue(p.Name)
+				m.input.Focus()
+			}
 		case "enter":
 			i := m.table.Cursor()
 			p := &m.projects[i]
@@ -150,6 +181,10 @@ func (m model) View() string {
 
 	if m.addingProject {
 		return fmt.Sprintf("%s\n\n%s\n\n%s\n\n[enter] save • [esc] cancel", title, m.table.View(), m.input.View())
+	}
+
+	if m.editingProject {
+		return fmt.Sprintf("%s\n\n%s\n\nRename project:\n%s\n\n[enter] save • [esc] cancel", title, m.table.View(), m.input.View())
 	}
 
 	return fmt.Sprintf("%s\n\n%s\n\n[↑/↓] select • [enter] toggle • [a] add • [q] quit", title, m.table.View())
