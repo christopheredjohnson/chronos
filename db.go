@@ -62,3 +62,14 @@ func (m *model) renameProject(id int, newName string) {
 		}
 	}
 }
+
+func (m *model) deleteProject(id int) {
+	_, _ = m.db.Exec("DELETE FROM projects WHERE id = ?", id)
+	newProjects := make([]Project, 0, len(m.projects))
+	for _, p := range m.projects {
+		if p.ID != id {
+			newProjects = append(newProjects, p)
+		}
+	}
+	m.projects = newProjects
+}

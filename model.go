@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -10,6 +11,10 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+)
+
+const (
+	PRIMARY = lipgloss.Color("#E83151")
 )
 
 type model struct {
@@ -23,6 +28,8 @@ type model struct {
 	height           int
 	editingProject   bool
 	editingProjectID int
+	confirmingDelete bool
+	projectToDelete  int
 }
 
 func initialModel(db *sql.DB) model {
@@ -40,18 +47,9 @@ func initialModel(db *sql.DB) model {
 	// Customize styles
 	styles := table.DefaultStyles()
 
-	styles.Header = styles.Header.
-		BorderStyle(lipgloss.NormalBorder()).
-		BorderForeground(lipgloss.Color("#FFA500")). // orange border
-		Foreground(lipgloss.Color("#FFFFFF")).       // white text
-		Background(lipgloss.Color("#333333"))        // dark background
-
 	styles.Selected = styles.Selected.
-		Foreground(lipgloss.Color("#000000")). // black text
-		Background(lipgloss.Color("#FFA500"))  // orange highlight
-
-	styles.Cell = styles.Cell.
-		Foreground(lipgloss.Color("#DDDDDD")) // light gray text
+		Foreground(lipgloss.Color("#FFFFFF")). // white text
+		Foreground(PRIMARY)                    // primary highlight
 
 	t.SetStyles(styles)
 
@@ -132,6 +130,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		if m.confirmingDelete {
+			switch key {
+			case "y":
+				m.deleteProject(m.projectToDelete)
+				m.confirmingDelete = false
+				m.updateTableRows()
+			case "n", "esc":
+				m.confirmingDelete = false
+			}
+			return m, nil
+		}
+
 		switch key {
 		case "ctrl+c", "q":
 			m.saveAll()
@@ -148,6 +158,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.editingProjectID = p.ID
 				m.input.SetValue(p.Name)
 				m.input.Focus()
+			}
+		case "x":
+			if !m.addingProject && !m.editingProject && len(m.projects) >= 1 {
+				log.Println(m.table.Cursor())
+				p := m.projects[m.table.Cursor()]
+				m.confirmingDelete = true
+				m.projectToDelete = p.ID
 			}
 		case "enter":
 			i := m.table.Cursor()
@@ -177,7 +194,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) View() string {
-	title := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFA500")).Render("⏳ Chronos – Projects")
+	title := lipgloss.NewStyle().Bold(true).Foreground(PRIMARY).Render("⏳ Chronos – Projects")
 
 	if m.addingProject {
 		return fmt.Sprintf("%s\n\n%s\n\n%s\n\n[enter] save • [esc] cancel", title, m.table.View(), m.input.View())
@@ -187,7 +204,17 @@ func (m model) View() string {
 		return fmt.Sprintf("%s\n\n%s\n\nRename project:\n%s\n\n[enter] save • [esc] cancel", title, m.table.View(), m.input.View())
 	}
 
-	return fmt.Sprintf("%s\n\n%s\n\n[↑/↓] select • [enter] toggle • [a] add • [q] quit", title, m.table.View())
+	if m.confirmingDelete {
+		p := m.projects[m.table.Cursor()]
+
+		confirmation := lipgloss.
+			NewStyle().
+			Foreground(PRIMARY).
+			Render(fmt.Sprintf("Delete \"%s\"? [y/n]", p.Name))
+		return fmt.Sprintf("%s\n\n%s\n\n %s", title, m.table.View(), confirmation)
+	}
+
+	return fmt.Sprintf("%s\n\n%s\n\n[↑/↓] select • [enter] toggle • [a] add • [e] edit • [x] delete • [q] quit", title, m.table.View())
 }
 
 func (m *model) saveAll() {
