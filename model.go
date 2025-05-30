@@ -13,10 +13,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-const (
-	PRIMARY = lipgloss.Color("#E83151")
-)
-
 type model struct {
 	db               *sql.DB
 	projects         []Project
@@ -30,9 +26,10 @@ type model struct {
 	editingProjectID int
 	confirmingDelete bool
 	projectToDelete  int
+	theme            Theme
 }
 
-func initialModel(db *sql.DB) model {
+func initialModel(db *sql.DB, theme Theme) model {
 	columns := []table.Column{
 		{Title: "Project", Width: 30},
 		{Title: "Elapsed", Width: 12},
@@ -45,11 +42,10 @@ func initialModel(db *sql.DB) model {
 	t := table.New(table.WithColumns(columns), table.WithRows(rows), table.WithFocused(true))
 
 	// Customize styles
-	styles := table.DefaultStyles()
-
-	styles.Selected = styles.Selected.
-		Foreground(lipgloss.Color("#FFFFFF")). // white text
-		Foreground(PRIMARY)                    // primary highlight
+	styles := table.Styles{
+		Header:   theme.HeaderStyle,
+		Selected: theme.SelectedStyle,
+	}
 
 	t.SetStyles(styles)
 
@@ -64,6 +60,7 @@ func initialModel(db *sql.DB) model {
 		table:          t,
 		input:          input,
 		timerStartedAt: make(map[int]time.Time),
+		theme:          theme,
 	}
 }
 
@@ -194,7 +191,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) View() string {
-	title := lipgloss.NewStyle().Bold(true).Foreground(PRIMARY).Render("⏳ Chronos – Projects")
+	title := m.theme.TitleStyle.Render("⏳ Chronos – Projects")
 
 	if m.addingProject {
 		return fmt.Sprintf("%s\n\n%s\n\n%s\n\n[enter] save • [esc] cancel", title, m.table.View(), m.input.View())
